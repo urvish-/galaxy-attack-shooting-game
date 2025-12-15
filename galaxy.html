@@ -1,0 +1,340 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galaxy Defender</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0d0d15;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Courier New', Courier, monospace;
+            color: white;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+            border: 2px solid #333;
+        }
+
+        canvas {
+            display: block;
+            background-color: #000;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Let clicks pass through to canvas */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .hud {
+            padding: 10px;
+            font-size: 20px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        #start-screen, #game-over-screen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #0ff;
+            pointer-events: auto;
+        }
+
+        button {
+            background: #0ff;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background: #fff;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="400" height="600"></canvas>
+        
+        <div id="ui-layer">
+            <div class="hud">
+                <span>Score: <span id="scoreDisplay">0</span></span>
+                <span>HP: <span id="hpDisplay">3</span></span>
+            </div>
+        </div>
+
+        <div id="start-screen">
+            <h1 style="color: #0ff;">GALAXY DEFENDER</h1>
+            <p>Use <b>Arrow Keys</b> to Move</p>
+            <p>Press <b>Space</b> to Shoot</p>
+            <button onclick="startGame()">Start Mission</button>
+        </div>
+
+        <div id="game-over-screen" class="hidden">
+            <h1 style="color: red;">MISSION FAILED</h1>
+            <p>Final Score: <span id="finalScore">0</span></p>
+            <button onclick="resetGame()">Try Again</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Game State Variables
+        let gameRunning = false;
+        let score = 0;
+        let frameCount = 0;
+        
+        // Player Object
+        const player = {
+            x: canvas.width / 2 - 20,
+            y: canvas.height - 60,
+            width: 40,
+            height: 40,
+            color: '#00ffcc',
+            speed: 5,
+            hp: 3,
+            dx: 0
+        };
+
+        // Arrays for game objects
+        let bullets = [];
+        let enemies = [];
+        let stars = [];
+
+        // Input Handling
+        const keys = {
+            ArrowLeft: false,
+            ArrowRight: false,
+            Space: false
+        };
+
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'ArrowLeft') keys.ArrowLeft = true;
+            if (e.code === 'ArrowRight') keys.ArrowRight = true;
+            if (e.code === 'Space') {
+                if (!keys.Space && gameRunning) shoot(); // Prevent holding space to laser stream
+                keys.Space = true;
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'ArrowLeft') keys.ArrowLeft = false;
+            if (e.code === 'ArrowRight') keys.ArrowRight = false;
+            if (e.code === 'Space') keys.Space = false;
+        });
+
+        // Initialize Background Stars
+        function initStars() {
+            stars = [];
+            for (let i = 0; i < 50; i++) {
+                stars.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    size: Math.random() * 2,
+                    speed: Math.random() * 3 + 0.5
+                });
+            }
+        }
+
+        // Functions
+        function startGame() {
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('game-over-screen').classList.add('hidden');
+            
+            // Reset variables
+            score = 0;
+            player.hp = 3;
+            player.x = canvas.width / 2 - 20;
+            bullets = [];
+            enemies = [];
+            gameRunning = true;
+            
+            updateUI();
+            initStars();
+            gameLoop();
+        }
+
+        function resetGame() {
+            startGame();
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            document.getElementById('game-over-screen').classList.remove('hidden');
+            document.getElementById('finalScore').innerText = score;
+        }
+
+        function shoot() {
+            bullets.push({
+                x: player.x + player.width / 2 - 2,
+                y: player.y,
+                width: 4,
+                height: 10,
+                color: '#ffff00',
+                speed: 7
+            });
+        }
+
+        function spawnEnemy() {
+            const size = Math.random() * 20 + 20; // Random size between 20 and 40
+            const xPos = Math.random() * (canvas.width - size);
+            enemies.push({
+                x: xPos,
+                y: -size,
+                width: size,
+                height: size,
+                color: '#ff3333',
+                speed: Math.random() * 2 + 1 // Random speed
+            });
+        }
+
+        function rectIntersect(r1, r2) {
+            return !(r2.x > r1.x + r1.width || 
+                     r2.x + r2.width < r1.x || 
+                     r2.y > r1.y + r1.height || 
+                     r2.y + r2.height < r1.y);
+        }
+
+        function updateUI() {
+            document.getElementById('scoreDisplay').innerText = score;
+            document.getElementById('hpDisplay').innerText = player.hp;
+        }
+
+        // Main Game Loop
+        function gameLoop() {
+            if (!gameRunning) return;
+
+            // Clear Canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Draw Background (Stars)
+            ctx.fillStyle = 'white';
+            stars.forEach(star => {
+                ctx.fillRect(star.x, star.y, star.size, star.size);
+                star.y += star.speed;
+                if (star.y > canvas.height) {
+                    star.y = 0;
+                    star.x = Math.random() * canvas.width;
+                }
+            });
+
+            // 2. Move Player
+            if (keys.ArrowLeft && player.x > 0) player.x -= player.speed;
+            if (keys.ArrowRight && player.x < canvas.width - player.width) player.x += player.speed;
+
+            // Draw Player (Triangle Shape)
+            ctx.fillStyle = player.color;
+            ctx.beginPath();
+            ctx.moveTo(player.x + player.width / 2, player.y); // Top point
+            ctx.lineTo(player.x, player.y + player.height); // Bottom left
+            ctx.lineTo(player.x + player.width, player.y + player.height); // Bottom right
+            ctx.closePath();
+            ctx.fill();
+
+            // 3. Handle Bullets
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                let b = bullets[i];
+                b.y -= b.speed;
+                ctx.fillStyle = b.color;
+                ctx.fillRect(b.x, b.y, b.width, b.height);
+
+                // Remove off-screen bullets
+                if (b.y < 0) bullets.splice(i, 1);
+            }
+
+            // 4. Handle Enemies
+            frameCount++;
+            if (frameCount % 60 === 0) { // Spawn enemy every 60 frames (approx 1 sec)
+                spawnEnemy();
+            }
+
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                let e = enemies[i];
+                e.y += e.speed;
+                
+                // Draw Enemy
+                ctx.fillStyle = e.color;
+                ctx.fillRect(e.x, e.y, e.width, e.height);
+                // Draw simple eyes for enemy
+                ctx.fillStyle = 'black';
+                ctx.fillRect(e.x + e.width*0.2, e.y + e.height*0.3, e.width*0.2, e.height*0.2);
+                ctx.fillRect(e.x + e.width*0.6, e.y + e.height*0.3, e.width*0.2, e.height*0.2);
+
+
+                // Collision: Bullet hits Enemy
+                for (let j = bullets.length - 1; j >= 0; j--) {
+                    if (rectIntersect(e, bullets[j])) {
+                        enemies.splice(i, 1); // Remove enemy
+                        bullets.splice(j, 1); // Remove bullet
+                        score += 10;
+                        updateUI();
+                        break; // Stop checking this enemy
+                    }
+                }
+
+                // Collision: Enemy hits Player
+                if (rectIntersect(e, player)) {
+                    enemies.splice(i, 1);
+                    player.hp--;
+                    updateUI();
+                    // Screen shake effect (simple)
+                    canvas.style.transform = "translate(5px, 5px)";
+                    setTimeout(() => canvas.style.transform = "none", 50);
+
+                    if (player.hp <= 0) {
+                        gameOver();
+                    }
+                }
+
+                // Remove off-screen enemies
+                if (e.y > canvas.height) {
+                    enemies.splice(i, 1);
+                }
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Initial setup
+        initStars();
+        // Draw one frame to show background before start
+        ctx.fillStyle = 'white';
+        stars.forEach(star => ctx.fillRect(star.x, star.y, star.size, star.size));
+
+    </script>
+</body>
+</html>
